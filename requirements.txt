@@ -1,0 +1,6 @@
+transformers==4.40.2
+datasets
+sentence-transformers
+konlpy
+numpy
+torch
