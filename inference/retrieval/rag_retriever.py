@@ -1,4 +1,4 @@
-from embedding_util import encode_texts, load_embeddings
+from inference.embedding.embedding_util import encode_texts, load_embeddings
 import numpy as np
 
 def retrieve_rules(input_text, rules, top_k=5, embed_path='./inference/rule_embeds.npy'):

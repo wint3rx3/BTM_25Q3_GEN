@@ -1,5 +1,5 @@
-from qwen_infer import qwen_infer
-from morph_analyzer import analyze_morphs
+from inference.llm.qwen_infer import qwen_infer
+from inference.analysis.morph_analyzer import analyze_morphs
 
 def rewrite_query(sample):
     """

@@ -1,6 +1,6 @@
-from rule_loader import load_rules
+from inference.retrieval.rule_loader import load_rules
 import numpy as np
-from embedding_util import encode_texts, save_embeddings
+from inference..embedding.embedding_util import encode_texts, save_embeddings
 
 # 규정 파일 경로 리스트
 rule_filepaths = [
