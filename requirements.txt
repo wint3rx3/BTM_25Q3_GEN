@@ -1,4 +1,6 @@
-transformers==4.40.2
+transformers==4.42.0
+peft>=0.4.0
+accelerate>=0.20.3
 datasets
 sentence-transformers
 konlpy
