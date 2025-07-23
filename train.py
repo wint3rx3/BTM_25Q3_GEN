@@ -1,6 +1,6 @@
 from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments
 from peft import LoraConfig, get_peft_model, PeftModel
-from datasets import load_dataset
+from datasets import load_dataset, Features, Value
 import os
 import torch
 import json
@@ -35,27 +35,59 @@ lora_config = LoraConfig(
 )
 model = get_peft_model(base_model, lora_config)
 
-# 2) 데이터 로드
-# Colab 환경인지 감지
+# 2) 데이터 로드: train/dev와 test에 서로 다른 스키마 지정
 is_colab = "COLAB_GPU" in os.environ
-
-# 데이터 파일 경로
 data_files = {
     "train": "data/korean_language_rag_V1.0_train.json",
     "dev":   "data/korean_language_rag_V1.0_dev.json",
     "test":  "data/korean_language_rag_V1.0_test.json"
 }
+cache_dir = "/content/.cache/hf_datasets" if is_colab else None
 
-# Colab이면 cache_dir 명시
-if is_colab:
-    ds = load_dataset("json", data_files=data_files, cache_dir="/content/.cache/hf_datasets")
-else:
-    ds = load_dataset("json", data_files=data_files)
+# ── 공통 input struct 정의
+input_struct = {
+    "question":      Value("string"),
+    "question_type": Value("string"),
+}
 
+# ── train/dev용: output.answer 포함
+features_with_labels = Features({
+    "id":    Value("string"),
+    "input": input_struct,
+    "output": {
+        "answer": Value("string")
+    }
+})
+train_ds = load_dataset(
+    "json",
+    data_files={"train": data_files["train"]},
+    features=features_with_labels,
+    cache_dir=cache_dir
+)["train"]
+dev_ds   = load_dataset(
+    "json",
+    data_files={"dev": data_files["dev"]},
+    features=features_with_labels,
+    cache_dir=cache_dir
+)["dev"]
+
+# ── test용: output 필드 없음
+features_no_labels = Features({
+    "id":    Value("string"),
+    "input": input_struct,
+})
+test_ds = load_dataset(
+    "json",
+    data_files={"test": data_files["test"]},
+    features=features_no_labels,
+    cache_dir=cache_dir
+)["test"]
+
+# 3) 전처리 함수
 def make_prompt(item):
     return f"[문항 ID: {item['id']}] 유형: {item['input']['question_type']}\n" + item["input"]["question"]
 
-def preprocess(ex): 
+def preprocess(ex):
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user",   "content": make_prompt(ex)}
@@ -71,30 +103,18 @@ def preprocess(ex):
     tokenized["labels"] = tokenized["input_ids"].copy()
     return tokenized
 
-train_ds = ds["train"].map(preprocess, remove_columns=ds["train"].column_names)
-dev_ds   = ds["dev"].map(preprocess,   remove_columns=ds["dev"].column_names)
+train_ds = train_ds.map(preprocess, remove_columns=train_ds.column_names)
+dev_ds   = dev_ds.map(preprocess,   remove_columns=dev_ds.column_names)
 
-# 3) Trainer로 학습
+# 4) Trainer로 학습
 training_args = TrainingArguments(
-    output_dir="qwen3_correction",
-    per_device_train_batch_size=8,                # A100 기준, 8~16까지 가능. 4090에서는 4~8 추천
-    gradient_accumulation_steps=4,                # effective batch size 32
-    per_device_eval_batch_size=8,
-    num_train_epochs=5,                           # 3~10 사이에서 성능 확인
-    learning_rate=5e-5,                           # 1e-4 ~ 5e-5 사이에서 튜닝, 5e-5 추천
-    fp16=True,                                    # mixed precision (A100/4090 모두 지원)
-    logging_steps=10,                             # 더 자주 로그
-    save_strategy="epoch",
-    evaluation_strategy="epoch",
-    predict_with_generate=True,
-    warmup_steps=300,                             # 워밍업 증가로 안정적 학습
-    weight_decay=0.05,                            # 과적합 방지, 0.01~0.05 추천
-    lr_scheduler_type="cosine",                   # 코사인 러닝레이트 스케줄러
-    report_to="none",                             # 실전에서는 wandb 등으로 변경 가능
-    save_total_limit=3,                           # 저장 모델 개수 제한
-    load_best_model_at_end=True,                  # 가장 성능 좋은 모델 자동 로드
-    metric_for_best_model="eval_loss",            # dev loss 기준
-    dataloader_num_workers=4,                     # 데이터 로딩 속도 향상
+    output_dir="qwen3_correction",       # 체크포인트가 저장될 디렉터리
+    per_device_train_batch_size=8,       # GPU 1장 기준 배치 사이즈
+    num_train_epochs=3,                  # 데이터 크기에 맞춰 epoch 수 설정
+    evaluation_strategy="epoch",         # 매 epoch 끝날 때마다 평가
+    save_strategy="epoch",               # 매 epoch 끝날 때마다 모델 저장
+    logging_steps=50,                    # 50 스텝마다 로그 출력
+    fp16=True                            # 가능하면 mixed-precision 사용
 )
 
 def collate_fn(batch):
@@ -114,7 +134,7 @@ trainer = Trainer(
 trainer.train()
 trainer.save_model("qwen3-correction-lora")
 
-# 4) 추론용 모델 로드 (LoRA 포함)
+# 5) 추론용 모델 로드 및 test 데이터 처리
 base_model = AutoModelForCausalLM.from_pretrained(
     "Qwen/Qwen3-8B",
     torch_dtype="auto",
@@ -122,9 +142,6 @@ base_model = AutoModelForCausalLM.from_pretrained(
 )
 model = PeftModel.from_pretrained(base_model, "qwen3-correction-lora")
 model.eval()
-
-# 5) test 데이터로 일괄 추론
-test_ds = ds["test"]  # test엔 output 필드가 없고 id+input만 있음 :contentReference[oaicite:2]{index=2}
 
 def correct_batch(test_dataset):
     results = []
@@ -149,8 +166,7 @@ def correct_batch(test_dataset):
             do_sample=False
         )
         raw = tokenizer.decode(out[0], skip_special_tokens=True)
-        pred = json.loads(raw)  # {'id': '750', 'output': {'answer': '…'}}
-        # test 구조와 동일하게 input도 붙이려면:
+        pred = json.loads(raw)
         result = {
             "id":     ex["id"],
             "input":  ex["input"],
@@ -160,6 +176,4 @@ def correct_batch(test_dataset):
     return results
 
 predictions = correct_batch(test_ds)
-# 이제 predictions 요소 하나하나가 train/dev 구조(
-# { "id": "...", "input": {...}, "output": { "answer": "..." } }
-# )와 정확히 일치합니다.
+# predictions를 원하는 형식으로 저장/후처리
