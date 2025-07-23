@@ -21,18 +21,17 @@ SYSTEM_PROMPT = (
 )
 
 # 1) 모델 및 LoRA 설정
-# ─── Quantization 설정 ─────────────────────────────────────────
 bnb_config = BitsAndBytesConfig(
     load_in_8bit=True,                   # 8-bit 로딩
-    llm_int8_threshold=6.0,              # 엔코더/디코더 스케일 기준값 (조정 가능)
+    llm_int8_threshold=6.0,              # 엔코더/디코더 스케일 기준값
 )
 
 tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-8B", trust_remote_code=True)
 base_model = AutoModelForCausalLM.from_pretrained(
     "Qwen/Qwen3-8B", 
-    quantization_config=bnb_config,      # quantization_config 인자 추가
+    quantization_config=bnb_config,
     device_map="auto",
-    low_cpu_mem_usage=True               # CPU 메모리도 줄여 줌
+    low_cpu_mem_usage=True
 )
 
 lora_config = LoraConfig(
@@ -44,23 +43,24 @@ lora_config = LoraConfig(
 )
 model = get_peft_model(base_model, lora_config)
 
-# ✅ gradient checkpointing을 위해 필수 설정
+# 필수 설정: gradient checkpointing & input grads 활성화
 model.config.use_cache = False
+model.gradient_checkpointing_enable()    # 메모리 절약을 위한 gradient checkpointing
+model.enable_input_require_grads()       # 8-bit 모델의 gradient 흐름 활성화
 
-# ✅ base 모델 파라미터 freeze (메모리 절약)
+# base 모델 파라미터 freeze (메모리 절약)
 for name, param in model.base_model.named_parameters():
     param.requires_grad = False
 
-# ─── 커스텀 Trainer 정의 ───────────────────────────────────────────
+# 커스텀 Trainer 정의
 class Trainer(HfTrainer):
-    def compute_loss(self, model, inputs, return_outputs=False):
+    def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
         # inputs 에는 'input_ids','attention_mask','labels'가 포함되어 있음
         labels = inputs.get("labels")
         # PeftModelForCausalLM은 **inputs 로 labels를 넘기면 loss를 리턴
         outputs = model(**inputs)
         loss = outputs.loss
         return (loss, outputs) if return_outputs else loss
-# ────────────────────────────────────────────────────────────────────
 
 # 2) 데이터셋 로드
 data_files = {
@@ -116,7 +116,7 @@ def preprocess(ex):
     tokenized = tokenizer(
         full,
         truncation=True,
-        max_length=1024,                 # 2048에서 1024로 줄임 (메모리 절약)
+        max_length=1024,                 # 메모리 절약을 위해 2048에서 1024로 감소
         padding="max_length"
     )
 
@@ -129,19 +129,18 @@ def preprocess(ex):
 train_ds = train_ds.map(preprocess, remove_columns=train_ds.column_names)
 dev_ds   = dev_ds.map(preprocess,   remove_columns=dev_ds.column_names)
 
-# ─── PyTorch Tensor 로딩을 위한 포맷 설정 ───────────────────────────
+# PyTorch Tensor 로딩을 위한 포맷 설정
 train_ds.set_format(type="torch", columns=["input_ids","attention_mask","labels"])
 dev_ds.set_format(type="torch",   columns=["input_ids","attention_mask","labels"])
-# ────────────────────────────────────────────────────────────────────
 
 # 4) Trainer 설정
 training_args = TrainingArguments(
     output_dir="qwen3_correction",
-    per_device_train_batch_size=1,         # 🔻 줄이기 (가장 효과 큼)
-    gradient_checkpointing=True,           # 🔁 메모리 절감
-    bf16=True,                             # 🧠 A100이면 추천 (fp16보다 안정)
+    per_device_train_batch_size=1,         # 메모리 절약을 위해 배치 크기 최소화
+    gradient_checkpointing=True,           # 메모리 절감
+    bf16=True,                             # A100이면 추천 (fp16보다 안정)
     fp16=False,                            # fp16 대신 bf16 사용
-    # deepspeed="deepspeed_config.json",   # 🚀 DeepSpeed ZeRO Stage 2 (필요시 주석 해제)
+    # deepspeed="deepspeed_config.json",   # DeepSpeed ZeRO Stage 2 (필요시 주석 해제)
     eval_strategy="epoch",
     save_strategy="epoch",
     logging_steps=50,
@@ -153,7 +152,7 @@ trainer = Trainer(
     args=training_args,
     train_dataset=train_ds,
     eval_dataset=dev_ds,
-    tokenizer=tokenizer,            # (선택) 로그 generation_prompt 디코딩에 필요할 수 있음
+    # tokenizer=tokenizer 제거 (deprecated in transformers 5.0.0)
 )
 
 trainer.train()
@@ -196,6 +195,6 @@ def correct_batch(test_dataset):
 
 predictions = correct_batch(test_ds)
 
-# 결과 저장 (선택)
+# 결과 저장
 with open("predictions.json", "w", encoding="utf-8") as f:
     json.dump(predictions, f, ensure_ascii=False, indent=2)
