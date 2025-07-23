@@ -1,5 +1,6 @@
-from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments
+from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments, BitsAndBytesConfig
 from peft import LoraConfig, get_peft_model, PeftModel
+from transformers import Trainer as HfTrainer
 from datasets import Dataset, Features, Value
 import os
 import torch
@@ -20,8 +21,19 @@ SYSTEM_PROMPT = (
 )
 
 # 1) 모델 및 LoRA 설정
+# ─── Quantization 설정 ─────────────────────────────────────────
+bnb_config = BitsAndBytesConfig(
+    load_in_8bit=True,                   # 8-bit 로딩
+    llm_int8_threshold=6.0,              # 엔코더/디코더 스케일 기준값 (조정 가능)
+)
+
 tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-8B", trust_remote_code=True)
-base_model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen3-8B", torch_dtype="auto", device_map="auto")
+base_model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen3-8B", 
+    quantization_config=bnb_config,      # quantization_config 인자 추가
+    device_map="auto",
+    low_cpu_mem_usage=True               # CPU 메모리도 줄여 줌
+)
 
 lora_config = LoraConfig(
     task_type="CAUSAL_LM",
@@ -31,6 +43,24 @@ lora_config = LoraConfig(
     lora_dropout=0.05
 )
 model = get_peft_model(base_model, lora_config)
+
+# ✅ gradient checkpointing을 위해 필수 설정
+model.config.use_cache = False
+
+# ✅ base 모델 파라미터 freeze (메모리 절약)
+for name, param in model.base_model.named_parameters():
+    param.requires_grad = False
+
+# ─── 커스텀 Trainer 정의 ───────────────────────────────────────────
+class Trainer(HfTrainer):
+    def compute_loss(self, model, inputs, return_outputs=False):
+        # inputs 에는 'input_ids','attention_mask','labels'가 포함되어 있음
+        labels = inputs.get("labels")
+        # PeftModelForCausalLM은 **inputs 로 labels를 넘기면 loss를 리턴
+        outputs = model(**inputs)
+        loss = outputs.loss
+        return (loss, outputs) if return_outputs else loss
+# ────────────────────────────────────────────────────────────────────
 
 # 2) 데이터셋 로드
 data_files = {
@@ -81,29 +111,49 @@ def preprocess(ex):
         add_generation_prompt=True
     )
     target = ex["output"]["answer"]
-    tokenized = tokenizer(prompt + target, truncation=True, max_length=4096, padding="max_length")
-    tokenized["labels"] = tokenized["input_ids"].copy()
+    full = prompt + target
+
+    tokenized = tokenizer(
+        full,
+        truncation=True,
+        max_length=1024,                 # 2048에서 1024로 줄임 (메모리 절약)
+        padding="max_length"
+    )
+
+    prompt_len = len(tokenizer(prompt, truncation=True, max_length=1024)["input_ids"])
+    labels = [-100] * prompt_len + tokenized["input_ids"][prompt_len:]
+    tokenized["labels"] = labels[:1024]  # ensure max_length
+
     return tokenized
 
 train_ds = train_ds.map(preprocess, remove_columns=train_ds.column_names)
 dev_ds   = dev_ds.map(preprocess,   remove_columns=dev_ds.column_names)
 
+# ─── PyTorch Tensor 로딩을 위한 포맷 설정 ───────────────────────────
+train_ds.set_format(type="torch", columns=["input_ids","attention_mask","labels"])
+dev_ds.set_format(type="torch",   columns=["input_ids","attention_mask","labels"])
+# ────────────────────────────────────────────────────────────────────
+
 # 4) Trainer 설정
 training_args = TrainingArguments(
     output_dir="qwen3_correction",
-    per_device_train_batch_size=8,
-    num_train_epochs=3,
+    per_device_train_batch_size=1,         # 🔻 줄이기 (가장 효과 큼)
+    gradient_checkpointing=True,           # 🔁 메모리 절감
+    bf16=True,                             # 🧠 A100이면 추천 (fp16보다 안정)
+    fp16=False,                            # fp16 대신 bf16 사용
+    # deepspeed="deepspeed_config.json",   # 🚀 DeepSpeed ZeRO Stage 2 (필요시 주석 해제)
     eval_strategy="epoch",
     save_strategy="epoch",
     logging_steps=50,
-    fp16=True
+    report_to="none"                       # wandb 비활성화
 )
 
 trainer = Trainer(
     model=model,
     args=training_args,
     train_dataset=train_ds,
-    eval_dataset=dev_ds
+    eval_dataset=dev_ds,
+    tokenizer=tokenizer,            # (선택) 로그 generation_prompt 디코딩에 필요할 수 있음
 )
 
 trainer.train()
