@@ -1,6 +1,7 @@
 transformers==4.42.0
 peft>=0.4.0
 accelerate>=0.20.3
+outlines
 datasets
 sentence-transformers
 konlpy
