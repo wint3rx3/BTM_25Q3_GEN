@@ -6,5 +6,5 @@ outlines
 datasets
 sentence-transformers
 konlpy
-numpy==2.2.6
+numpy==1.26.4
 torch
