@@ -3,6 +3,7 @@ from peft import PeftModel
 from datasets import Dataset, Features, Value
 import torch
 import json
+from tqdm import tqdm
 
 # 시스템 프롬프트
 SYSTEM_PROMPT = (
@@ -39,7 +40,7 @@ def make_prompt(ex):
 # 추론 함수
 def correct_batch(test_dataset):
     results = []
-    for ex in test_dataset:
+    for ex in tqdm(test_dataset, desc="추론 진행"):
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": make_prompt(ex)}
@@ -52,7 +53,10 @@ def correct_batch(test_dataset):
                 **inputs,
                 max_new_tokens=256,
                 do_sample=False,
-                pad_token_id=tokenizer.eos_token_id
+                pad_token_id=tokenizer.eos_token_id,
+                temperature=None,  # 명시적으로 None 설정
+                top_p=None,        # 명시적으로 None 설정  
+                top_k=None         # 명시적으로 None 설정
             )
 
         generated_tokens = output[0][inputs["input_ids"].shape[1]:]

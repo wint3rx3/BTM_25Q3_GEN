@@ -5,6 +5,9 @@ from datasets import Dataset, Features, Value
 import os
 import torch
 import json
+from tqdm import tqdm
+
+os.environ["TRANSFORMERS_VERBOSITY"] = "error"  # 경고 메시지 숨기기
 
 # 시스템 프롬프트 (자연어 출력 유도)
 SYSTEM_PROMPT = (
@@ -163,7 +166,7 @@ model.eval()
 
 def correct_batch(test_dataset):
     results = []
-    for ex in test_dataset:
+    for ex in tqdm(test_dataset, desc="추론 진행"):
         # 프롬프트 구성
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -184,8 +187,10 @@ def correct_batch(test_dataset):
                 **inputs,
                 max_new_tokens=256,
                 do_sample=False,
-                pad_token_id=tokenizer.eos_token_id
-                # temperature=0.0 제거 (do_sample=False일 때 불필요)
+                pad_token_id=tokenizer.eos_token_id,
+                temperature=None,  # 명시적으로 None 설정
+                top_p=None,        # 명시적으로 None 설정  
+                top_k=None         # 명시적으로 None 설정
             )
         
         # 디코딩 (프롬프트 부분 제거)
