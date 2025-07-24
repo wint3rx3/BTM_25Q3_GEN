@@ -2,33 +2,16 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingA
 from peft import LoraConfig, get_peft_model, PeftModel
 from transformers import Trainer as HfTrainer
 from datasets import Dataset, Features, Value
-from pydantic import BaseModel, Field
-import outlines
 import os
 import torch
 import json
-from typing import List
 
-# 0) Pydantic 모델 정의
-class OutputModel(BaseModel):
-    answer: str = Field(..., description="정답 문장 및 이유 설명")
-
-class Prediction(BaseModel):
-    id: str = Field(..., description="문항 ID")
-    output: OutputModel = Field(..., description="결과 객체")
-
-# 0-1) 시스템 프롬프트
+# 시스템 프롬프트 (자연어 출력 유도)
 SYSTEM_PROMPT = (
     "당신은 한국어 맞춤법·문장부호 교정 전문가입니다.\n"
-    "- ‘교정형’: 틀린 부분을 바로잡고, 이유를 어문 규범 근거로 설명하세요.\n"
-    "- ‘선택형’: 보기 중 옳은 표현을 선택하고, 이유를 어문 규범 근거로 설명하세요.\n"
-    "결과는 JSON으로, 아래 형식만 출력하세요:\n"
-    "{\n"
-    "  \"id\": \"문항ID\",\n"
-    "  \"output\": {\n"
-    "    \"answer\": \"정답 문장 및 이유 설명\"\n"
-    "  }\n"
-    "}\n"
+    "- '교정형': 틀린 부분을 바로잡고, 이유를 어문 규범 근거로 설명하세요.\n"
+    "- '선택형': 보기 중 옳은 표현을 선택하고, 이유를 어문 규범 근거로 설명하세요.\n"
+    "정답 문장을 자연스럽게 작성하세요."
 )
 
 # 1) 모델 및 LoRA 설정
@@ -178,44 +161,46 @@ base_model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen3-8B", torch_dtype="
 model = PeftModel.from_pretrained(base_model, "qwen3-correction-lora")
 model.eval()
 
-# Pydantic 모델을 JSON 스키마 문자열로 변환
-schema_as_str = json.dumps(Prediction.model_json_schema())
-
-# outlines generator 생성
-generator = outlines.generate.json(model, schema_as_str)
-
 def correct_batch(test_dataset):
-    prompts = []
-    ids = []
-    
-    # 프롬프트 준비
+    results = []
     for ex in test_dataset:
+        # 프롬프트 구성
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user",   "content": make_prompt(ex)}
+            {"role": "user", "content": make_prompt(ex)}
         ]
-        text = tokenizer.apply_chat_template(
+        prompt = tokenizer.apply_chat_template(
             messages,
             tokenize=False,
             add_generation_prompt=True
         )
-        prompts.append(text)
-        ids.append(ex["id"])
-    
-    # outlines generator로 배치 처리
-    predictions: List[dict] = generator(prompts)
-    
-    # id 붙이고 최종 포맷으로 변환
-    results = []
-    for idx, pred in enumerate(predictions):
-        # pred는 이미 {"id": "...", "output": {"answer": "..."}} 형태
-        # id만 올바른 값으로 덮어씌움
-        pred["id"] = ids[idx]
-        results.append({
-            "id": ids[idx],
-            "input": test_dataset[idx]["input"],
-            "output": pred["output"]
-        })
+        
+        # 입력 토큰화
+        inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+        
+        # 텍스트 생성
+        with torch.no_grad():
+            output = model.generate(
+                **inputs,
+                max_new_tokens=256,
+                do_sample=False,
+                pad_token_id=tokenizer.eos_token_id
+                # temperature=0.0 제거 (do_sample=False일 때 불필요)
+            )
+        
+        # 디코딩 (프롬프트 부분 제거)
+        generated_tokens = output[0][inputs['input_ids'].shape[1]:]
+        decoded = tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()
+        
+        # 결과 구성
+        result = {
+            "id": ex["id"],
+            "input": ex["input"],
+            "output": {
+                "answer": decoded
+            }
+        }
+        results.append(result)
     
     return results
 

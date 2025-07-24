@@ -1,9 +1,10 @@
-transformers==4.42.0
+transformers==4.53.3
 peft>=0.4.0
 accelerate>=0.20.3
+bitsandbytes==0.46.1
 outlines
 datasets
 sentence-transformers
 konlpy
-numpy
+numpy==2.2.6
 torch
