@@ -35,7 +35,7 @@ test_ds = Dataset.from_list(test_data).cast(features)
 
 # 프롬프트 구성 함수
 def make_prompt(ex):
-    return f"[문항 ID: {ex['id']}] 유형: {ex['input']['question_type']}\n{ex['input']['question']}"
+    return f"[문항 ID: {ex['id']}] {ex['input']['question']}\n유형: {ex['input']['question_type']}"
 
 # 추론 함수
 def correct_batch(test_dataset):

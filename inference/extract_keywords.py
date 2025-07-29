@@ -115,10 +115,14 @@ def extract_keywords_batch(predictions_data):
         print(f"추출된 키워드: {', '.join(keywords)}")
         print("-" * 50)
         
+        # 기존 구조 유지하면서 output에 keyword 추가
         result_item = {
             "id": item["id"],
-            "question_type": item["input"]["question_type"],
-            "keywords": keywords
+            "input": item["input"],  # 기존 input 구조 유지
+            "output": {
+                "answer": answer_text,
+                "keyword": ", ".join(keywords)  # 키워드를 문자열로 저장
+            }
         }
         results.append(result_item)
     
@@ -150,7 +154,7 @@ def main():
     keyword_results = extract_keywords_batch(predictions_data)
     
     # 결과 저장
-    output_file = "extracted_keywords.json"
+    output_file = "predictions_with_keywords.json"
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(keyword_results, f, ensure_ascii=False, indent=2)
     
