@@ -266,7 +266,7 @@ class SemanticEmbeddingSearch:
             top_k (int): 반환할 상위 결과 개수
             
         Returns:
-            pd.DataFrame: 검색 결과 데이터프레임
+            pd.DataFrame: 검색 결과 데이터프레임 (통일된 형태)
         """
         if vectordb_dir is None:
             vectordb_dir = self.vectordb_dir
@@ -280,32 +280,35 @@ class SemanticEmbeddingSearch:
         # 배치 검색
         D, I = index.search(Q, top_k)
         
-        top_k_idx_list = []
-        top_k_scores_list = []
+        results = []
         
-        for scores, idxs in zip(D, I):
+        for i, (scores, idxs) in enumerate(zip(D, I)):
             # 유효하지 않은 인덱스(-1) 제외 및 임계값 필터링
-            filtered = [(i, s) for i, s in zip(idxs, scores) if i != -1 and s >= self.score_threshold]
+            filtered = [(idx, s) for idx, s in zip(idxs, scores) if idx != -1 and s >= self.score_threshold]
             
             if not filtered:
-                top_k_idx_list.append([])
-                top_k_scores_list.append([])
-                continue
+                retrieved_indices = []
+                retrieved_scores = []
+            else:
+                # 메타데이터에서 원본 rule 인덱스 추출
+                retrieved_indices = [docs[idx]["index"] for idx, _ in filtered]
+                retrieved_scores = [float(s) for _, s in filtered]
             
-            # 메타데이터에서 원본 rule 인덱스 추출
-            rule_indices = [docs[i]["index"] for i, _ in filtered]
-            rule_scores = [float(s) for _, s in filtered]
-            
-            top_k_idx_list.append(rule_indices)
-            top_k_scores_list.append(rule_scores)
+            # 통일된 형태로 결과 저장
+            results.append({
+                'query_id': i,
+                'input_text': queries[i],
+                'retrieved_indices': retrieved_indices,
+                'retrieved_scores': retrieved_scores,
+                'method': 'method2_semantic_embedding'
+            })
         
         # 결과 데이터프레임 생성
-        results_df = pd.DataFrame()
-        results_df[f'top_{top_k}_rule_index'] = top_k_idx_list
-        results_df[f'top_{top_k}_scores'] = top_k_scores_list
+        results_df = pd.DataFrame(results)
         
         # 점수 분포 분석 추가
-        self._analyze_score_distribution(top_k_scores_list, method_name="Method 2")
+        score_list = [result['retrieved_scores'] for result in results]
+        self._analyze_score_distribution(score_list, method_name="Method 2")
         
         return results_df
     
@@ -365,7 +368,7 @@ class SemanticEmbeddingSearch:
             
             # 정규식으로 '옳다' 문장 추출 (수정된 버전)
             # 문장 경계를 인식하여 '옳다'가 포함된 문장을 찾음
-            pat = r'(?:^|(?<=[.!?…。！？]))\s*(?:(?:"[^"]*"|\'[^\']*\'|"[^"]*"|'[^']*'))?[^.!?…。！？]*옳다[^.!?…。！？]*[.!?…。！？]'
+            pat = r'(?:^|(?<=[.!?…。！？]))\s*(?:(?:"[^"]*"|\'[^\']*\'|"[^"]*"|\'[^\']*\'))?[^.!?…。！？]*옳다[^.!?…。！？]*[.!?…。！？]'
             m = re.search(pat, ans)
             
             if m:
@@ -412,6 +415,8 @@ class SemanticEmbeddingSearch:
 
 
 def main():
+    import os
+
     """사용 예시"""
     # 검색기 초기화 (.env에서 HF_TOKEN 로드)
     hf_token = os.getenv('HF_TOKEN')
@@ -448,62 +453,17 @@ def main():
     print(results_df.head())
     
     # 📁 결과 저장 추가
-    output_file = 'result/method2_results.csv'
+    output_file = 'result/RAG_result/method2_results.csv'
     results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
     print(f"\n✅ 결과가 저장되었습니다: {output_file}")
     
-    # 요약 정보도 저장
-    summary_file = 'result/method2_summary.txt'
-    with open(summary_file, 'w', encoding='utf-8') as f:
-        f.write("=== Method 2: 의미 기반 임베딩 검색 결과 요약 ===\n")
-        f.write(f"총 쿼리 수: {len(results_df)}\n")
-        
-        # 결과가 있는 쿼리 수 계산
-        results_with_data = len([r for r in results_df['top_10_rule_index'] if r])
-        f.write(f"결과가 있는 쿼리: {results_with_data}\n")
-        
-        # 점수 통계 계산
-        all_scores = []
-        for scores in results_df['top_10_scores']:
-            all_scores.extend(scores)
-        
-        if all_scores:
-            import numpy as np
-            f.write(f"총 검색 결과: {len(all_scores)}개\n")
-            f.write(f"평균 점수: {np.mean(all_scores):.3f}\n")
-            f.write(f"중앙값 점수: {np.median(all_scores):.3f}\n")
-            f.write(f"최고 점수: {np.max(all_scores):.3f}\n")
-            f.write(f"최저 점수: {np.min(all_scores):.3f}\n")
-            f.write(f"임계값({searcher.score_threshold}) 이상: {len([s for s in all_scores if s >= searcher.score_threshold])}개\n")
-            f.write(f"95th percentile: {np.percentile(all_scores, 95):.3f}\n")
-            f.write(f"90th percentile: {np.percentile(all_scores, 90):.3f}\n")
-        else:
-            f.write("검색 결과 없음\n")
-    
-    print(f"✅ 요약 정보가 저장되었습니다: {summary_file}")
-    
-    # 벡터 DB 정보도 저장
-    vectordb_info_file = 'result/method2_vectordb_info.txt'
-    with open(vectordb_info_file, 'w', encoding='utf-8') as f:
-        f.write("=== Method 2: 벡터 데이터베이스 정보 ===\n")
-        f.write(f"벡터 DB 경로: {vectordb_dir}\n")
-        f.write(f"사용 모델: {searcher.model_name}\n")
-        f.write(f"디바이스: {searcher.device}\n")
-        f.write(f"임계값: {searcher.score_threshold}\n")
-        
-        # 인덱스 파일 존재 확인
-        import os
-        index_file = os.path.join(vectordb_dir, "index.faiss")
-        docs_file = os.path.join(vectordb_dir, "docs.jsonl")
-        f.write(f"인덱스 파일 존재: {os.path.exists(index_file)}\n")
-        f.write(f"문서 파일 존재: {os.path.exists(docs_file)}\n")
-        
-        if os.path.exists(index_file):
-            f.write(f"인덱스 파일 크기: {os.path.getsize(index_file)} bytes\n")
-        if os.path.exists(docs_file):
-            f.write(f"문서 파일 크기: {os.path.getsize(docs_file)} bytes\n")
-    
-    print(f"✅ 벡터 DB 정보가 저장되었습니다: {vectordb_info_file}")
+    # 통일된 형태의 CSV도 저장 (교집합 분석용)
+    try:
+        from unified_csv_utils import create_unified_csv
+        unified_output = 'result/RAG_result/method2_unified.csv'
+        create_unified_csv(results_df, 'method2', unified_output)
+    except ImportError:
+        print("⚠️ unified_csv_utils를 찾을 수 없습니다. 통일된 CSV는 생성되지 않습니다.")
     
     return results_df
 

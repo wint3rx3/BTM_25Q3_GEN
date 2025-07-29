@@ -216,8 +216,11 @@ class KeywordRuleBasedSearch:
             dict: 분포 통계
         """
         all_scores = []
-        for scores in results_df['retrieved_scores']:
-            all_scores.extend(scores)
+        # 통일된 컬럼명 사용
+        score_column = 'retrieved_scores'
+        if score_column in results_df.columns:
+            for scores in results_df[score_column]:
+                all_scores.extend(scores)
         
         if not all_scores:
             return {"message": "점수 데이터가 없습니다."}
@@ -255,12 +258,20 @@ class KeywordRuleBasedSearch:
             sentences (list): 검색할 문장 리스트
             
         Returns:
-            pd.DataFrame: 검색 결과 데이터프레임
+            pd.DataFrame: 검색 결과 데이터프레임 (통일된 형태)
         """
         results = []
-        for sentence in sentences:
+        for i, sentence in enumerate(sentences):
             result = self.search(sentence)
-            results.append(result)
+            # 통일된 형태로 변환
+            unified_result = {
+                'query_id': i,
+                'input_text': sentence,
+                'retrieved_indices': result['retrieved_index'],
+                'retrieved_scores': result['retrieved_scores'],
+                'method': 'method1_keyword_rule_based'
+            }
+            results.append(unified_result)
         
         df = pd.DataFrame(results)
         
@@ -270,9 +281,11 @@ class KeywordRuleBasedSearch:
         print(f"총 검색 결과: {score_stats.get('total_results', 0)}개")
         print(f"점수 범위: {score_stats.get('min_score', 0):.1f} ~ {score_stats.get('max_score', 0):.1f}")
         print(f"평균: {score_stats.get('mean_score', 0):.1f}, 중앙값: {score_stats.get('median_score', 0):.1f}")
-        print(f"임계값(70) 이상: {score_stats.get('threshold_analysis', {}).get('above_70', 0)}개")
-        print(f"90점 이상: {score_stats.get('threshold_analysis', {}).get('above_90', 0)}개")
-        print(f"만점(100): {score_stats.get('threshold_analysis', {}).get('perfect_100', 0)}개")
+        if 'threshold_analysis' in score_stats and isinstance(score_stats['threshold_analysis'], dict):
+            threshold_analysis = score_stats['threshold_analysis']
+            print(f"임계값(70) 이상: {threshold_analysis['above_70']}개")
+            print(f"90점 이상: {threshold_analysis['above_90']}개")
+            print(f"만점(100): {threshold_analysis['perfect_100']}개")
         print("=" * 40)
         
         return df
@@ -329,24 +342,17 @@ def main():
     print(results_df.head())
     
     # 📁 결과 저장 추가
-    output_file = 'result/method1_results.csv'
+    output_file = 'result/RAG_result/method1_results.csv'
     results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
     print(f"\n✅ 결과가 저장되었습니다: {output_file}")
     
-    # 요약 정보도 저장
-    summary_file = 'result/method1_summary.txt'
-    with open(summary_file, 'w', encoding='utf-8') as f:
-        f.write("=== Method 1: 키워드 룰베이스 검색 결과 요약 ===\n")
-        f.write(f"총 쿼리 수: {len(results_df)}\n")
-        f.write(f"결과가 있는 쿼리: {len([r for r in results_df['retrieved_index'] if r])}\n")
-        
-        # 점수 분포 정보
-        score_stats = searcher.analyze_score_distribution(results_df)
-        f.write(f"총 검색 결과: {score_stats.get('total_results', 0)}개\n")
-        f.write(f"평균 점수: {score_stats.get('mean_score', 0):.1f}\n")
-        f.write(f"임계값(70) 이상: {score_stats.get('threshold_analysis', {}).get('above_70', 0)}개\n")
-    
-    print(f"✅ 요약 정보가 저장되었습니다: {summary_file}")
+    # 통일된 형태의 CSV도 저장 (교집합 분석용)
+    try:
+        from unified_csv_utils import create_unified_csv
+        unified_output = 'result/RAG_result/method1_unified.csv'
+        create_unified_csv(results_df, 'method1', unified_output)
+    except ImportError:
+        print("⚠️ unified_csv_utils를 찾을 수 없습니다. 통일된 CSV는 생성되지 않습니다.")
     
     return results_df
 

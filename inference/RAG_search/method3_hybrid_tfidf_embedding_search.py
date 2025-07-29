@@ -267,10 +267,9 @@ class HybridTFIDFEmbeddingSearch:
             weight_jac (float): Jaccard 가중치
             
         Returns:
-            pd.DataFrame: 검색 결과 데이터프레임
+            pd.DataFrame: 검색 결과 데이터프레임 (통일된 형태)
         """
-        index_list_results = []
-        score_list_results = []
+        results = []
         
         # keywords_data가 DataFrame인 경우
         if isinstance(keywords_data, pd.DataFrame):
@@ -301,19 +300,24 @@ class HybridTFIDFEmbeddingSearch:
                 weight_jac=weight_jac
             )
             
-            # 결과 저장
-            top_indices = top_rows['index'].tolist() if not top_rows.empty else []
-            index_list_results.append(top_indices)
-            score_list_results.append(scores)
+            # 결과 저장 (통일된 형태)
+            retrieved_indices = top_rows['index'].tolist() if not top_rows.empty else []
+            input_text = ', '.join(keywords_list) if isinstance(keywords_list, list) else str(keywords_list)
+            
+            results.append({
+                'query_id': i,
+                'input_text': input_text,
+                'retrieved_indices': retrieved_indices,
+                'retrieved_scores': scores,
+                'method': 'method3_hybrid_tfidf_embedding'
+            })
         
         # 결과 DataFrame 생성
-        results_df = pd.DataFrame({
-            'index_list': index_list_results,
-            'score_list': score_list_results
-        })
+        results_df = pd.DataFrame(results)
         
         # 점수 분포 분석 추가
-        self._analyze_score_distribution(score_list_results, method_name="Method 3")
+        score_list = [result['retrieved_scores'] for result in results]
+        self._analyze_score_distribution(score_list, method_name="Method 3")
         
         return results_df
     
@@ -417,81 +421,23 @@ def main():
     print(results_df.head())
     
     # 📁 결과 저장 추가
-    output_file = 'result/method3_results.csv'
+    output_file = 'result/RAG_result/method3_results.csv'
     results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
     print(f"\n✅ 결과가 저장되었습니다: {output_file}")
     
-    # 요약 정보도 저장
-    summary_file = 'result/method3_summary.txt'
-    with open(summary_file, 'w', encoding='utf-8') as f:
-        f.write("=== Method 3: 하이브리드 TF-IDF + 임베딩 검색 결과 요약 ===\n")
-        f.write(f"총 쿼리 수: {len(results_df)}\n")
-        
-        # 결과가 있는 쿼리 수 계산
-        results_with_data = len([r for r in results_df['index_list'] if r])
-        f.write(f"결과가 있는 쿼리: {results_with_data}\n")
-        
-        # 점수 통계 계산
-        all_scores = []
-        for scores in results_df['score_list']:
-            all_scores.extend(scores)
-        
-        if all_scores:
-            import numpy as np
-            f.write(f"총 검색 결과: {len(all_scores)}개\n")
-            f.write(f"평균 점수: {np.mean(all_scores):.3f}\n")
-            f.write(f"중앙값 점수: {np.median(all_scores):.3f}\n")
-            f.write(f"최고 점수: {np.max(all_scores):.3f}\n")
-            f.write(f"최저 점수: {np.min(all_scores):.3f}\n")
-            f.write(f"표준편차: {np.std(all_scores):.3f}\n")
-            f.write(f"임계값({searcher.score_threshold}) 이상: {len([s for s in all_scores if s >= searcher.score_threshold])}개\n")
-            f.write(f"95th percentile: {np.percentile(all_scores, 95):.3f}\n")
-            f.write(f"90th percentile: {np.percentile(all_scores, 90):.3f}\n")
-            f.write(f"75th percentile: {np.percentile(all_scores, 75):.3f}\n")
-            
-            # 점수 구간별 분포
-            f.write(f"\n점수 구간별 분포:\n")
-            f.write(f"0.8 이상: {len([s for s in all_scores if s >= 0.8])}개\n")
-            f.write(f"0.6-0.8: {len([s for s in all_scores if 0.6 <= s < 0.8])}개\n")
-            f.write(f"0.4-0.6: {len([s for s in all_scores if 0.4 <= s < 0.6])}개\n")
-            f.write(f"0.2-0.4: {len([s for s in all_scores if 0.2 <= s < 0.4])}개\n")
-        else:
-            f.write("검색 결과 없음\n")
-    
-    print(f"✅ 요약 정보가 저장되었습니다: {summary_file}")
-    
-    # 하이브리드 검색 설정 정보도 저장
-    config_file = 'result/method3_config.txt'
-    with open(config_file, 'w', encoding='utf-8') as f:
-        f.write("=== Method 3: 하이브리드 검색 설정 정보 ===\n")
-        f.write(f"임베딩 모델: {searcher.embedding_model_name}\n")
-        f.write(f"디바이스: {searcher.device}\n")
-        f.write(f"점수 임계값: {searcher.score_threshold}\n")
-        f.write(f"\n검색 파라미터:\n")
-        f.write(f"TF-IDF 후보 수 (tfidf_k): 50\n")
-        f.write(f"최종 결과 수 (top_k): 10\n")
-        f.write(f"\n가중치 설정:\n")
-        f.write(f"TF-IDF 가중치: 0.5\n")
-        f.write(f"임베딩 가중치: 0.3\n")
-        f.write(f"Jaccard 가중치: 0.2\n")
-        f.write(f"\n데이터 정보:\n")
-        f.write(f"규정 데이터 수: {len(searcher.df)}개\n")
-        f.write(f"TF-IDF 벡터 차원: {searcher.tfidf_matrix.shape}\n")
-        
-        # 입력 파일 정보
-        import os
-        input_file = 'result/predictions_with_keywords.json'
-        if os.path.exists(input_file):
-            f.write(f"입력 파일: {input_file}\n")
-            f.write(f"입력 파일 크기: {os.path.getsize(input_file)} bytes\n")
-    
-    print(f"✅ 검색 설정 정보가 저장되었습니다: {config_file}")
+    # 통일된 형태의 CSV도 저장 (교집합 분석용)
+    try:
+        from unified_csv_utils import create_unified_csv
+        unified_output = 'result/RAG_result/method3_unified.csv'
+        create_unified_csv(results_df, 'method3', unified_output)
+    except ImportError:
+        print("⚠️ unified_csv_utils를 찾을 수 없습니다. 통일된 CSV는 생성되지 않습니다.")
     
     # 샘플 결과 출력
     print(f"\n📊 검색 결과 샘플 (처음 3개):")
     for i in range(min(3, len(results_df))):
-        indices = results_df.iloc[i]['index_list']
-        scores = results_df.iloc[i]['score_list']
+        indices = results_df.iloc[i]['retrieved_indices']
+        scores = results_df.iloc[i]['retrieved_scores']
         print(f"Query {i+1}: {len(indices)}개 결과, 최고 점수: {max(scores):.3f}" if scores else f"Query {i+1}: 결과 없음")
     
     return results_df
