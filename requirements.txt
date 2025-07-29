@@ -2,10 +2,15 @@ transformers==4.53.3
 peft>=0.4.0
 accelerate>=0.20.3
 bitsandbytes==0.46.1
-outlines
 datasets
 sentence-transformers
 konlpy
 numpy==1.26.4
 torch
 tqdm
+python-dotenv
+pandas
+scikit-learn
+faiss-cpu
+matplotlib
+seaborn
