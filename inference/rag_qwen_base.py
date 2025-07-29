@@ -175,11 +175,18 @@ class QwenBaseRAGInference:
         
         # 각 규정 파일을 순서대로 로드 (RAG 검색과 동일)
         for key, relative_path in data_paths.items():
-            full_path = os.path.join(r"c:\Workspace\BTM_25Q3_GEN", relative_path)
+            # 코랩 환경에 맞게 경로 수정
+            full_path = os.path.join("/content/BTM_25Q3_GEN", relative_path)
+            print(f"파일 경로 확인: {full_path}")  # 디버깅용
+            print(f"파일 존재 여부: {os.path.exists(full_path)}")  # 디버깅용
+            
             if os.path.exists(full_path):
                 with open(full_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     all_data.extend(data)
+                    print(f"{key}: {len(data)}개 문서 로드")
+            else:
+                print(f"❌ 파일을 찾을 수 없습니다: {full_path}")
         
         # DataFrame 생성하여 인덱스 확인 (RAG 검색과 동일한 방식)
         df = pd.DataFrame(all_data)
@@ -298,7 +305,7 @@ def main():
     qwen_rag = QwenBaseRAGInference()
     
     # 테스트 데이터 로드 (predict.py와 동일)
-    test_path = "data/korean_language_rag_V1.0_test.json"
+    test_path = "/content/BTM_25Q3_GEN/data/korean_language_rag_V1.0_test.json"
     with open(test_path, encoding="utf-8") as f:
         test_data = json.load(f)
 
@@ -312,9 +319,9 @@ def main():
     test_ds = Dataset.from_list(test_data).cast(features)
     
     # 문서 선택기 초기화 (RAG 검색 결과 활용)
-    method1_path = r"c:\Workspace\BTM_25Q3_GEN\result\RAG_result\method1_results.csv"
-    method2_path = r"c:\Workspace\BTM_25Q3_GEN\result\RAG_result\method2_results.csv"
-    method3_path = r"c:\Workspace\BTM_25Q3_GEN\result\RAG_result\method3_results.csv"
+    method1_path = r"/content/BTM_25Q3_GEN/result/RAG_result/method1_results.csv"
+    method2_path = r"/content/BTM_25Q3_GEN/result/RAG_result/method2_results.csv"
+    method3_path = r"/content/BTM_25Q3_GEN/result/RAG_result/method3_results.csv"
     
     print("문서 선택기 초기화 중...")
     doc_selector = RAGDocumentSelector(method1_path, method2_path, method3_path)
@@ -353,11 +360,11 @@ def main():
         })
     
     # 결과 저장 - predictions.json과 동일한 형식
-    output_path = "predictions.json"
+    output_path = "predictions-base.json"
     with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
     
-    print(f"✅ predictions.json 생성 완료! (RAG Base 모델)")
+    print(f"✅ predictions-base.json 생성 완료! (RAG Base 모델)")
     print(f"총 {len(results)}개 테스트 예제 처리 완료")
 
 
