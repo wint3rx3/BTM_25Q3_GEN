@@ -1,0 +1,9 @@
+=== Method 2: 벡터 데이터베이스 정보 ===
+벡터 DB 경로: ./vectordb_rules
+사용 모델: Qwen/Qwen3-Embedding-4B
+디바이스: cuda
+임계값: 0.3
+인덱스 파일 존재: True
+문서 파일 존재: True
+인덱스 파일 크기: 1843245 bytes
+문서 파일 크기: 125774 bytes

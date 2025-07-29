@@ -1,0 +1,19 @@
+=== Method 3: 하이브리드 검색 설정 정보 ===
+임베딩 모델: Qwen/Qwen3-Embedding-4B
+디바이스: cuda
+점수 임계값: 0.2
+
+검색 파라미터:
+TF-IDF 후보 수 (tfidf_k): 50
+최종 결과 수 (top_k): 10
+
+가중치 설정:
+TF-IDF 가중치: 0.5
+임베딩 가중치: 0.3
+Jaccard 가중치: 0.2
+
+데이터 정보:
+규정 데이터 수: 180개
+TF-IDF 벡터 차원: (180, 285)
+입력 파일: result/predictions_with_keywords.json
+입력 파일 크기: 320746 bytes

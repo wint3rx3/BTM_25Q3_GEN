@@ -237,11 +237,16 @@ class HybridTFIDFEmbeddingSearch:
         문자열 형태의 리스트를 실제 파이썬 리스트로 변환
         
         Args:
-            string_list (str): 문자열 형태의 리스트
+            string_list (str or list): 문자열 형태의 리스트 또는 이미 리스트인 경우
             
         Returns:
             list: 변환된 리스트
         """
+        # 이미 리스트인 경우 그대로 반환
+        if isinstance(string_list, list):
+            return string_list
+        
+        # 문자열인 경우 파싱 시도
         try:
             return ast.literal_eval(string_list)
         except (ValueError, SyntaxError):
@@ -269,7 +274,14 @@ class HybridTFIDFEmbeddingSearch:
         
         # keywords_data가 DataFrame인 경우
         if isinstance(keywords_data, pd.DataFrame):
-            keyword_column = keywords_data['keyword']
+            # 컬럼명 유연하게 처리
+            if 'keyword' in keywords_data.columns:
+                keyword_column = keywords_data['keyword']
+            elif 'keywords' in keywords_data.columns:
+                keyword_column = keywords_data['keywords']
+            else:
+                # 첫 번째 컬럼 사용
+                keyword_column = keywords_data.iloc[:, 0]
         else:
             keyword_column = keywords_data
         
@@ -360,7 +372,8 @@ class HybridTFIDFEmbeddingSearch:
                     question = item['input']['question']
                     keywords_list.append([question])
                     
-            keyword_df = pd.DataFrame({'keywords': keywords_list})
+            # 컬럼명을 'keyword'로 통일하여 batch_search와 일치시킴
+            keyword_df = pd.DataFrame({'keyword': keywords_list})
             
         else:
             # CSV 파일 로드

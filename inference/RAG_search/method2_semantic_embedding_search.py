@@ -363,15 +363,28 @@ class SemanticEmbeddingSearch:
             question = pred['input']['question']
             ans = pred['output']['answer']
             
-            # '옳다' 부분 추출
-            pat = r'(?:^|(?<=[.!?…。！？]))\s*(?:(?:"[^"]*"|\'[^\']*\'|["][^"]*["]|['][^']*[']))?[^.!?…。！？]*옳다[^.!?…。！？]*[.!?…。！？]'
+            # 정규식으로 '옳다' 문장 추출 (수정된 버전)
+            # 문장 경계를 인식하여 '옳다'가 포함된 문장을 찾음
+            pat = r'(?:^|(?<=[.!?…。！？]))\s*(?:(?:"[^"]*"|\'[^\']*\'|"[^"]*"|'[^']*'))?[^.!?…。！？]*옳다[^.!?…。！？]*[.!?…。！？]'
             m = re.search(pat, ans)
+            
             if m:
-                answer = m.group(0)
+                answer = m.group(0).strip()
                 # '옳다.' 이후 사유 추출
-                m_reason = re.search(r'(?<=옳다\.)\s*(.*)$', ans, flags=re.S)
-                reason = m_reason.group(1) if m_reason else ""
+                m_reason = re.search(r'옳다\.\s*(.*)$', ans, flags=re.S)
+                reason = m_reason.group(1).strip() if m_reason else ""
+                
+                # 사유가 비어있으면 전체 답변에서 옳다 문장 제외한 나머지 사용
+                if not reason:
+                    # 옳다 문장을 제거한 나머지 부분을 사유로 사용
+                    remaining = ans.replace(answer, '', 1).strip()
+                    reason = remaining if remaining else ans
             else:
+                # 옳다 패턴을 찾지 못한 경우 전체 답변 사용
+                reason = ans
+            
+            # 최종 검증: 사유가 너무 짧으면 전체 답변 사용
+            if len(reason.strip()) < 10:
                 reason = ans
             
             id_list.append(id_val)
