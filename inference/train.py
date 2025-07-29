@@ -1,7 +1,7 @@
 from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments, BitsAndBytesConfig
 from peft import LoraConfig, get_peft_model, PeftModel
 from transformers import Trainer as HfTrainer
-from datasets import Dataset, Features, Value
+from datasets import Dataset, Features, Value, concatenate_datasets
 import os
 import torch
 import json
@@ -130,8 +130,11 @@ def preprocess(ex):
 train_ds = train_ds.map(preprocess, remove_columns=train_ds.column_names)
 dev_ds   = dev_ds.map(preprocess,   remove_columns=dev_ds.column_names)
 
+# train과 dev 데이터셋을 결합하여 함께 훈련
+combined_train_ds = concatenate_datasets([train_ds, dev_ds])
+
 # PyTorch Tensor 로딩을 위한 포맷 설정
-train_ds.set_format(type="torch", columns=["input_ids","attention_mask","labels"])
+combined_train_ds.set_format(type="torch", columns=["input_ids","attention_mask","labels"])
 dev_ds.set_format(type="torch",   columns=["input_ids","attention_mask","labels"])
 
 # 4) Trainer 설정
@@ -151,7 +154,7 @@ training_args = TrainingArguments(
 trainer = Trainer(
     model=model,
     args=training_args,
-    train_dataset=train_ds,
+    train_dataset=combined_train_ds,
     eval_dataset=dev_ds,
     # tokenizer=tokenizer 제거 (deprecated in transformers 5.0.0)
 )
