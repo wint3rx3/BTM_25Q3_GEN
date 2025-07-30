@@ -269,7 +269,8 @@ class QwenBaseRAGInference:
         prompt = self.tokenizer.apply_chat_template(
             messages,
             tokenize=False,
-            add_generation_prompt=True
+            add_generation_prompt=True,
+            enable_thinking=False  # thinking 모드 비활성화
         )
         
         return prompt
@@ -283,11 +284,11 @@ class QwenBaseRAGInference:
             outputs = self.model.generate(
                 **inputs,
                 max_new_tokens=max_new_tokens,
-                do_sample=False,
-                pad_token_id=self.tokenizer.eos_token_id,
-                temperature=None,  # 명시적으로 None 설정
-                top_p=None,        # 명시적으로 None 설정  
-                top_k=None         # 명시적으로 None 설정
+                do_sample=True,        # non-thinking 모드에서 권장
+                temperature=0.7,       # non-thinking 모드 권장값
+                top_p=0.8,            # non-thinking 모드 권장값
+                top_k=20,             # non-thinking 모드 권장값
+                pad_token_id=self.tokenizer.eos_token_id
             )
         
         # 입력 부분 제거하고 생성된 답변만 추출

@@ -276,7 +276,8 @@ class QwenFinetunedRAGInference:
         prompt = self.tokenizer.apply_chat_template(
             messages,
             tokenize=False,
-            add_generation_prompt=True
+            add_generation_prompt=True,
+            enable_thinking=False  # thinking 모드 비활성화
         )
         
         return prompt
@@ -308,13 +309,13 @@ def main():
     """메인 실행 함수 - 파인튜닝된 모델 버전 (대회 형식)"""
     
     # 파인튜닝된 Qwen RAG 추론기 초기화
-    model_path = r"/content/BTM_25Q3_GEN/data/korean_language_rag_V1.0_test.json"
+    model_path = r"/content/BTM_25Q3_GEN/model"
     
     print("파인튜닝된 Qwen 모델 로드 중...")
     qwen_rag = QwenFinetunedRAGInference(model_path)
     
     # 테스트 데이터 로드 (predict.py와 동일)
-    test_path = "data/korean_language_rag_V1.0_test.json"
+    test_path = r"/content/BTM_25Q3_GEN/data/korean_language_rag_V1.0_test.json"
     with open(test_path, encoding="utf-8") as f:
         test_data = json.load(f)
 
